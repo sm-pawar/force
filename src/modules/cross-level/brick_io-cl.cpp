@@ -69,7 +69,7 @@ int write_brick(brick_t *brick){
   char provname[NPOW_10];
   
   char bname[NPOW_10];
-  char fname[NPOW_10];
+  char fname[NPOW_10] = "";
   int nchar;
   
   char version[NPOW_10];
@@ -89,6 +89,7 @@ int write_brick(brick_t *brick){
   int n_band_meta = NPOW_10; // adjust later
   int n_sys_meta = 0;
   int i = 0;
+  int status = FAILURE;
   
   
     if (brick == NULL || brick->open == OPEN_FALSE) return SUCCESS;
@@ -156,9 +157,9 @@ int write_brick(brick_t *brick){
     
     // get driver
     if ((driver_physical = GDALGetDriverByName(brick->format.driver.string)) == NULL){
-      printf("%s driver not found\n", brick->format.driver.string); return FAILURE;}
+      printf("%s driver not found\n", brick->format.driver.string); goto cleanup;}
     if ((driver_memory   = GDALGetDriverByName("MEM")) == NULL){
-      printf("%s driver not found\n", "MEM"); return FAILURE;}
+      printf("%s driver not found\n", "MEM"); goto cleanup;}
   
     driver_metadata = GDALGetMetadata(driver_physical, NULL);
     //CSLPrint(driver_metadata, NULL);
@@ -166,7 +167,7 @@ int write_brick(brick_t *brick){
     create = CSLFetchBoolean(driver_metadata, GDAL_DCAP_CREATE, false);
     if (!create && !CSLFetchBoolean(driver_metadata, GDAL_DCAP_CREATECOPY, false)){
       printf("%s driver does not support creating, nor create-copying datasets\n", brick->format.driver.string);
-      return FAILURE;
+      goto cleanup;
     }
   
     if (create){
@@ -185,7 +186,7 @@ int write_brick(brick_t *brick){
     // set GDAL output options
     if (brick->format.options[_TV_TAG_].number != brick->format.options[_TV_VAL_].number){
       printf("Error: Number of GDAL option tags and values do not match.\n");
-      return FAILURE;
+      goto cleanup;
     }
 
     for (int o=0; o<brick->format.options[_TV_TAG_].number; o++){
@@ -220,14 +221,14 @@ int write_brick(brick_t *brick){
         break;
       default:
         printf("unknown datatype for writing brick. ");
-        return FAILURE;
+        goto cleanup;
     }
   
   
     // output path
     if ((lock = (char*)CPLLockFile(brick->dname.string, 60)) == NULL){
       printf("Unable to lock directory %s (timeout: %ds). ", brick->dname.string, 60);
-      return FAILURE;}
+      goto cleanup;}
     createdir(brick->dname.string);
     CPLUnlockFile(lock);
     lock = NULL;
@@ -237,7 +238,7 @@ int write_brick(brick_t *brick){
     nchar = snprintf(provname, NPOW_10, "%s/provenance_%04d%02d%02d.csv", 
       brick->provdir.string, today.year, today.month, today.day);
     if (nchar < 0 || nchar >= NPOW_10){ 
-      printf("Buffer Overflow in assembling provenance file\n"); return FAILURE;}     
+      printf("Buffer Overflow in assembling provenance file\n"); goto cleanup;}     
   
   
     for (f=0; f<nfiles; f++){
@@ -245,19 +246,19 @@ int write_brick(brick_t *brick){
       if (brick->explode){
         nchar = snprintf(bname, NPOW_10, "_%s", brick->bandname.string[bands[_brick_][f][0]]);
         if (nchar < 0 || nchar >= NPOW_10){ 
-          printf("Buffer Overflow in assembling band ID\n"); return FAILURE;}      
+          printf("Buffer Overflow in assembling band ID\n"); goto cleanup;}      
       } else bname[0] = '\0';
 
       nchar = snprintf(fname, NPOW_10, "%s/%s%s.%s", brick->dname.string, 
         brick->fname.string, bname, brick->format.extension.string);
       if (nchar < 0 || nchar >= NPOW_10){ 
-        printf("Buffer Overflow in assembling filename\n"); return FAILURE;}
+        printf("Buffer Overflow in assembling filename\n"); goto cleanup;}
   
       timeout = lock_timeout(get_brick_size(brick));
   
       if ((lock = (char*)CPLLockFile(fname, timeout)) == NULL){
         printf("Unable to lock file %s (timeout: %fs, nx/ny: %d/%d). ", fname, timeout, brick->nx, brick->ny);
-        return FAILURE;}
+        goto cleanup;}
   
   
       // mosaicking into existing file
@@ -272,20 +273,20 @@ int write_brick(brick_t *brick){
         #endif
   
         if ((fo = GDALOpen(fname, GA_ReadOnly)) == NULL){
-          printf("Unable to open %s. ", fname); return FAILURE;}
+          printf("Unable to open %s. ", fname); goto cleanup;}
   
         if (GDALGetRasterCount(fo) != nbands){
           printf("Number of bands %d do not match for UPDATE/MERGE mode (file: %d). ", 
             nbands, GDALGetRasterCount(fo)); 
-          return FAILURE;}
+          goto cleanup;}
         if (GDALGetRasterXSize(fo) != brick->nx){
           printf("Number of cols %d do not match for UPDATE/MERGE mode (file: %d). ", 
             brick->nx, GDALGetRasterXSize(fo)); 
-          return FAILURE;}
+          goto cleanup;}
         if (GDALGetRasterYSize(fo) != brick->ny){
           printf("Number of rows %d do not match for UPDATE/MERGE mode (file: %d). ", 
             brick->ny, GDALGetRasterYSize(fo)); 
-          return FAILURE;}
+          goto cleanup;}
   
         alloc((void**)&buf, brick->nc, sizeof(float));
   
@@ -298,7 +299,7 @@ int write_brick(brick_t *brick){
   
           if (GDALRasterIO(band, GF_Read, 0, 0, brick->nx, brick->ny, buf, 
             brick->nx, brick->ny, GDT_Float32, 0, 0) == CE_Failure){
-            printf("Unable to read %s. ", fname); return FAILURE;} 
+            printf("Unable to read %s. ", fname); goto cleanup;} 
   
   
           for (int p=0; p<brick->nc; p++){
@@ -321,8 +322,10 @@ int write_brick(brick_t *brick){
         }
   
         GDALClose(fo);
+        fo = NULL;
   
         free((void*)buf);
+        buf = NULL;
   
       } else {
         update = false;
@@ -333,10 +336,10 @@ int write_brick(brick_t *brick){
       if (brick->open == OPEN_CHUNK && fileexist(fname) && 
          (brick->chunk[_X_] > 0 || brick->chunk[_Y_] > 0)){
         if ((fp = GDALOpen(fname, GA_Update)) == NULL){
-          printf("Unable to open %s. ", fname); return FAILURE;}
+          printf("Unable to open %s. ", fname); goto cleanup;}
       } else {
         if ((fp = GDALCreate(driver_create, fname, brick->nx, brick->ny, nbands, file_datatype, options)) == NULL){
-          printf("Error creating file %s. ", fname); return FAILURE;}
+          printf("Error creating file %s. ", fname); goto cleanup;}
       }
         
       if (brick->open == OPEN_CHUNK){
@@ -345,7 +348,7 @@ int write_brick(brick_t *brick){
             brick->chunk[_X_] >= brick->dim_chunk.cols || 
             brick->chunk[_Y_] >= brick->dim_chunk.rows){
           printf("attempting to write invalid chunk\n");
-          return FAILURE;
+          goto cleanup;
         }
         nx_write     = brick->cx;
         ny_write     = brick->cy;
@@ -369,7 +372,7 @@ int write_brick(brick_t *brick){
         // initialize file before writing chunk to avoid uninitialized data in output image
         if (brick->initialize){
           if (GDALFillRaster(band, (double)brick->nodata[b_brick], 0.0) == CE_Failure){
-            printf("Unable to initialize %s. ", fname); return FAILURE;}
+            printf("Unable to initialize %s. ", fname); goto cleanup;}
         }
 
         switch (brick->datatype){
@@ -377,36 +380,36 @@ int write_brick(brick_t *brick){
             if (GDALRasterIO(band, GF_Write, xoff_write, yoff_write, 
               nx_write, ny_write, brick->vshort[b_brick], 
               nx_write, ny_write, file_datatype, 0, 0) == CE_Failure){
-              printf("Unable to write %s. ", fname); return FAILURE;}
+              printf("Unable to write %s. ", fname); goto cleanup;}
             break;
           case _DT_SMALL_:
             if (GDALRasterIO(band, GF_Write, xoff_write, yoff_write, 
               nx_write, ny_write, brick->vsmall[b_brick], 
               nx_write, ny_write, file_datatype, 0, 0) == CE_Failure){
-              printf("Unable to write %s. ", fname); return FAILURE;} 
+              printf("Unable to write %s. ", fname); goto cleanup;} 
             break;
           case _DT_FLOAT_:
             if (GDALRasterIO(band, GF_Write, xoff_write, yoff_write, 
               nx_write, ny_write, brick->vfloat[b_brick], 
               nx_write, ny_write, file_datatype, 0, 0) == CE_Failure){
-              printf("Unable to write %s. ", fname); return FAILURE;} 
+              printf("Unable to write %s. ", fname); goto cleanup;} 
             break;
           case _DT_INT_:
             if (GDALRasterIO(band, GF_Write, xoff_write, yoff_write, 
               nx_write, ny_write, brick->vint[b_brick], 
               nx_write, ny_write, file_datatype, 0, 0) == CE_Failure){
-              printf("Unable to write %s. ", fname); return FAILURE;} 
+              printf("Unable to write %s. ", fname); goto cleanup;} 
             break;
           case _DT_USHORT_:
             if (GDALRasterIO(band, GF_Write, xoff_write, yoff_write, 
               nx_write, ny_write, brick->vushort[b_brick], 
               nx_write, ny_write, file_datatype, 0, 0) == CE_Failure){
-              printf("Unable to write %s. ", fname); return FAILURE;} 
+              printf("Unable to write %s. ", fname); goto cleanup;} 
             break;
   
           default:
             printf("unknown datatype for writing brick. ");
-            return FAILURE;
+            goto cleanup;
         }
   
         GDALSetDescription(band, brick->bandname.string[b_brick]);
@@ -425,7 +428,7 @@ int write_brick(brick_t *brick){
       // copy to physical file. This is needed for drivers that do not support CREATE
       if (!create){
         if ((fp_copy = GDALCreateCopy(driver_physical, fname, fp, FALSE, options, NULL, NULL)) == NULL){
-          printf("Error creating file %s. ", fname); return FAILURE;}
+          printf("Error creating file %s. ", fname); goto cleanup;}
         fp_finish = fp_copy;
       } else {
         fp_finish = fp;
@@ -447,7 +450,7 @@ int write_brick(brick_t *brick){
         copy_string(band_meta[i++], NPOW_14, "Wavelength");
         nchar = snprintf(band_meta[i], NPOW_14, "%.3f", brick->wavelength[b_brick]); i++;
         if (nchar < 0 || nchar >= NPOW_14){ 
-          printf("Buffer Overflow in assembling band metadata\n"); return FAILURE;}
+          printf("Buffer Overflow in assembling band metadata\n"); goto cleanup;}
   
         copy_string(band_meta[i++], NPOW_14, "Wavelength_unit");
         copy_string(band_meta[i++], NPOW_14, brick->unit.string[b_brick]);
@@ -455,7 +458,7 @@ int write_brick(brick_t *brick){
         copy_string(band_meta[i++], NPOW_14, "Scale");
         nchar = snprintf(band_meta[i], NPOW_14, "%.3f", brick->scale[b_brick]); i++;
         if (nchar < 0 || nchar >= NPOW_14){ 
-          printf("Buffer Overflow in assembling band metadata\n"); return FAILURE;}
+          printf("Buffer Overflow in assembling band metadata\n"); goto cleanup;}
   
         copy_string(band_meta[i++], NPOW_14, "Sensor");
         copy_string(band_meta[i++], NPOW_14, brick->sensor.string[b_brick]);
@@ -471,11 +474,13 @@ int write_brick(brick_t *brick){
   
       }
    
-      if (!create) GDALClose(fp_copy);
+      if (!create){ GDALClose(fp_copy); fp_copy = NULL;}
       GDALClose(fp);
+      fp = NULL;
   
     
       CPLUnlockFile(lock);
+      lock = NULL;
     
       // write provenance info
       if (brick->provenance.number > 0 && 
@@ -484,19 +489,19 @@ int write_brick(brick_t *brick){
   
         if ((lock = (char*)CPLLockFile(provname, timeout)) == NULL){
           printf("Unable to lock file %s (timeout: %fs). ", provname, timeout);
-          return FAILURE;}
+          goto cleanup;}
   
         if (fileexist(provname)){
   
           if ((fprov = fopen(provname, "a")) == NULL){
             printf("Unable to re-open provenance file!\n"); 
-            return FAILURE;}
+            goto cleanup;}
   
         } else {
   
           if ((fprov = fopen(provname, "w")) == NULL){
             printf("Unable to create provenance file!\n"); 
-            return FAILURE;}
+            goto cleanup;}
   
           fprintf(fprov, "%s,%s,%s,%s\n", "file", "origin", "mode", "creation");
   
@@ -510,14 +515,31 @@ int write_brick(brick_t *brick){
         fprintf(fprov, "%s,%s,%s\n", brick->provenance.string[brick->provenance.number-1], c_update[update], lwritetime);
 
         fclose(fprov);
+        fprov = NULL;
   
         CPLUnlockFile(lock);
+        lock = NULL;
   
       }
     
   
     }
   
+    status = SUCCESS;
+
+  cleanup:
+
+    // on failure, release everything that is still held, most importantly the
+    // lockfile. Otherwise, the stale lockfile blocks all subsequent attempts
+    // to write this file (up to the lock timeout per attempt), and open
+    // datasets keep their dirty blocks in memory
+    if (fp_copy != NULL){ GDALClose(fp_copy); fp_copy = NULL;}
+    if (fp      != NULL){ GDALClose(fp);      fp      = NULL;}
+    if (fo      != NULL){ GDALClose(fo);      fo      = NULL;}
+    if (fprov   != NULL){ fclose(fprov);      fprov   = NULL;}
+    if (lock    != NULL){ CPLUnlockFile(lock); lock   = NULL;}
+    if (buf     != NULL){ free((void*)buf);   buf     = NULL;}
+
     if (options   != NULL){ CSLDestroy(options);                      options   = NULL;}
     if (fp_meta   != NULL){ free_2DC((void**)fp_meta);                fp_meta   = NULL;}
     if (band_meta != NULL){ free_2DC((void**)band_meta);              band_meta = NULL;}
@@ -526,7 +548,12 @@ int write_brick(brick_t *brick){
   
     //CPLPopErrorHandler();
   
-    return SUCCESS;
+    if (status == FAILURE){
+      printf("\nError: failed to write %s (%s - %s).\n", fname, brick->name.string, brick->product.string);
+      fflush(stdout);
+    }
+
+    return status;
   }
   
 
