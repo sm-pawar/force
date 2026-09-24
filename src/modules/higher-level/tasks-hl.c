@@ -256,6 +256,9 @@ char dname[NPOW_10];
 int nchar;
 char *lock = NULL;
 bool error = false;
+bool initialize = false;
+int n_failed = 0;
+int n_written = 0;
 off_t bytes = 0;
 int o;
 
@@ -286,9 +289,15 @@ int o;
     CPLUnlockFile(lock);
     lock = NULL;
 
+    // decide once for all products whether the output images need to be
+    // initialized. This must not be evaluated within the parallel loop, as
+    // the first finished product updates the last written tile, which would
+    // prevent the initialization of all remaining products
+    initialize = initialize_before_this_chunk(pro, cube, phl);
+
     omp_set_num_threads(phl->othread);
   
-    #pragma omp parallel shared(OUTPUT,pu,nprod,cube,phl,tile,pro) reduction(+: bytes) default(none)
+    #pragma omp parallel shared(OUTPUT,pu,nprod,phl,initialize) reduction(+: bytes,n_failed,n_written) default(none)
     {
 
       CPLPushErrorHandler(CPLQuietErrorHandler);
@@ -299,7 +308,7 @@ int o;
 
         if (OUTPUT[pu][o] != NULL && 
             get_brick_open(OUTPUT[pu][o]) == OPEN_CHUNK &&
-            initialize_before_this_chunk(pro, cube, phl)){
+            initialize){
           set_brick_initialize(OUTPUT[pu][o], true);
         }
 
@@ -307,19 +316,32 @@ int o;
           OUTPUT[pu][o] = crop_brick(OUTPUT[pu][o], phl->radius);
         }
 
-        write_brick(OUTPUT[pu][o]);
+        if (write_brick(OUTPUT[pu][o]) == FAILURE){
+          n_failed++;
+          continue;
+        }
 
         if (OUTPUT[pu][o] != NULL && 
             get_brick_open(OUTPUT[pu][o]) != OPEN_FALSE){
             bytes += get_brick_size(OUTPUT[pu][o]);
-            pro->last_tile_written[_X_] = tile[_X_];
-            pro->last_tile_written[_Y_] = tile[_Y_];
+            n_written++;
         }
 
       }
 
       CPLPopErrorHandler();
 
+    }
+
+    if (n_failed > 0){
+      printf("Error: %d of %d output products could not be written for tile X%04d_Y%04d.\n", 
+        n_failed, nprod[pu], tile[_X_], tile[_Y_]);
+      fflush(stdout);
+    }
+
+    if (n_written > 0){
+      pro->last_tile_written[_X_] = tile[_X_];
+      pro->last_tile_written[_Y_] = tile[_Y_];
     }
     
 
