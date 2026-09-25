@@ -303,21 +303,27 @@ float **xyz_tsd_sw2 = NULL;
           ill = ill_[p]/10000.0;
           cf  = cf_[p]/10000.0;
 
-          if (ill > 0){
+          // self-shadowed pixels (cos i <= 0) are treated as poorly 
+          // illuminated pixels: direct irradiance is 0, diffuse only
+          if (ill < 0) ill = 0.0;
 
-            szen = interpolate_coarse(weights, xy_sz); 
-            ms   = cos(szen);
-            Tso  = interpolate_coarse(weights, xy_Tso); 
-            Tvo  = interpolate_coarse(weights, xy_Tvo); 
-            E0_ = atc->E0[b] * Tvo*Tso;
-            f  = E0_*tss/(E0_*tsd);
-            f0 = E0_*tss_sw2/(E0_*tsd_sw2);
-            h0 = (M_PI+2*szen)/(2.0*M_PI);
+          szen = interpolate_coarse(weights, xy_sz); 
+          ms   = cos(szen);
+          Tso  = interpolate_coarse(weights, xy_Tso); 
+          Tvo  = interpolate_coarse(weights, xy_Tvo); 
+          E0_ = atc->E0[b] * Tvo*Tso;
+          f  = E0_*tss/(E0_*tsd);
+          f0 = E0_*tss_sw2/(E0_*tsd_sw2);
+          h0 = (M_PI+2*szen)/(2.0*M_PI);
 
+          // guard against division by zero for fully shadowed pixels
+          // without diffuse irradiance (no C-factor or no sky view)
+          if (ill+sky*cf/f0*f/h0 <= 0){
+            A = 1.0;
+          } else {
             A = (ms+cf/f0*f/h0)/(ill+sky*cf/f0*f/h0);
             if (A < 0) A = -10000.0;
-
-          } else A = 1.0;
+          }
 
         }
 

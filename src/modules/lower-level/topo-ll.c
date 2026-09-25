@@ -557,10 +557,11 @@ float **sun_ = NULL;
       }
 
       // set illumination QAI
-      if (ill_[p] < 0){
-        set_illumination(QAI, p, 3); // deep shadow
-      } else if (ill_[p] < 1736.482){
-        set_illumination(QAI, p, 2); // poor
+      // self-shadowed pixels (cos i < 0) are not flagged as a separate 
+      // shadow class, but as poor illumination, and are corrected like 
+      // poorly illuminated pixels (direct irradiance = 0, diffuse only)
+      if (ill_[p] < 1736.482){
+        set_illumination(QAI, p, 2); // poor (includes self-shadow)
       } else if (ill_[p] < 5735.764){
         set_illumination(QAI, p, 1); // moderate
       }
@@ -854,8 +855,9 @@ float **xyz_tsd = NULL;
 
       p = i*nx+j;
 
-      // only do for illuminated pixels
-      if (get_off(QAI, p) || ill_[p] < 0) continue;
+      // do for all pixels, including self-shadowed pixels, which are 
+      // corrected like poorly illuminated pixels
+      if (get_off(QAI, p)) continue;
 
       g = convert_brick_ji2p(QAI, atc->xy_sun, i, j);
       z = dem_[p];
@@ -954,7 +956,7 @@ float **xyz_tsd = NULL;
       
       p = i*nx+j;
       
-      if (get_off(QAI, p) || ill_[p] < 0) continue;
+      if (get_off(QAI, p)) continue;
 
         num = mx = 0.0;
 
@@ -964,7 +966,7 @@ float **xyz_tsd = NULL;
           if (ip < 0 || jp < 0 || ip > ny-1 || jp > nx-1) continue;
           np = ip*nx+jp;
 
-          if (get_off(QAI, np) || ill_[np] < 0) continue;
+          if (get_off(QAI, np)) continue;
 
           mx += cor_[np];
           num++;
@@ -974,7 +976,7 @@ float **xyz_tsd = NULL;
 
         if (num > 0) cf = mx/num*10000; else cf = cor_[p]*10000;
         if (cf > USHRT_MAX) cf = USHRT_MAX;
-        if (num > 0) cf_[p] = (ushort)cf;
+        cf_[p] = (ushort)cf;
 
     }
     }
