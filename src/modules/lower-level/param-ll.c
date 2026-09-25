@@ -64,6 +64,7 @@ void register_lower(params_t *params, par_ll_t *pl2){
   register_enum_par(params,    "RES_MERGE",             _TAGGED_ENUM_RES_MERGE_, _RES_MERGE_LENGTH_, &pl2->resmerge);
   register_int_par(params,     "TIER",                  1, 3, &pl2->tier);
   register_bool_par(params,    "DO_TOPO",               &pl2->dotopo);
+  register_float_par(params,   "TOPO_ILLUMINATION_LIMIT", 0, 90, &pl2->topo_ill_limit);
   register_bool_par(params,    "DO_ATMO",               &pl2->doatmo);
   register_bool_par(params,    "DO_AOD",                &pl2->doaod);
   register_bool_par(params,    "DO_BRDF",               &pl2->dobrdf);

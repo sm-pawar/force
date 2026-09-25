@@ -100,6 +100,7 @@ typedef struct {
 
   /** L2 processing parameters **/
   int dotopo;  // flag: topographic correction
+  float topo_ill_limit; // max. illumination angle used in topographic correction [deg]
   int doatmo;  // flag: atmospheric correction
   int dobrdf;  // flag: BRDF reduction
   int doaod;   // flag: estimate AOD

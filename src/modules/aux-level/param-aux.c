@@ -320,6 +320,18 @@ void write_par_ll_atcor(FILE *fp, bool verbose){
   fprintf(fp, "DO_TOPO = TRUE\n");
 
   if (verbose){
+    fprintf(fp, "# This parameter limits the topographic correction of poorly illuminated\n");
+    fprintf(fp, "# and self-shadowed pixels. Pixels with an illumination angle (angle between\n");
+    fprintf(fp, "# sun and surface normal) larger than this limit are corrected as if they\n");
+    fprintf(fp, "# were illuminated at this angle. This prevents overcorrection, as the\n");
+    fprintf(fp, "# correction factor increases steeply when the direct irradiance approaches\n");
+    fprintf(fp, "# zero. Lower values give a weaker correction of poorly illuminated slopes.\n");
+    fprintf(fp, "# 90 applies the full correction (diffuse irradiance only in self-shadow).\n");
+    fprintf(fp, "# Type: Float. Valid range: [0,90]\n");
+  }
+  fprintf(fp, "TOPO_ILLUMINATION_LIMIT = 80\n");
+
+  if (verbose){
     fprintf(fp, "# This indicates if BRDF correction should be performed. If TRUE, output is\n");
     fprintf(fp, "# nadir BRDF adjusted reflectance instead of BOA reflectance (the output is\n");
     fprintf(fp, "# named BOA nonetheless).\n");

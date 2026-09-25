@@ -199,6 +199,7 @@ short nodata = _FORCE_NO_DATA_;
 short vnodata;
 float E0_, tss_sw2, tsd_sw2;
 float sky, ill, cf, f, f0, h0; 
+float ill_min = 0.0;
 float T, Ts, tss, tsd, tvs, tvd;
 float s, rho_p, szen, ms;
 float tg, Tso, Tvo;
@@ -250,12 +251,18 @@ float **xyz_tsd_sw2 = NULL;
   if ((xy_Tvo      = get_band_float(atc->xy_Tvo,  b))   == NULL) return FAILURE;
   if ((xy_Tso      = get_band_float(atc->xy_Tso,  b))   == NULL) return FAILURE;
   if ((xy_brdf     = get_band_float(atc->xy_brdf, b))   == NULL) return FAILURE;
+
+  // lower limit for the cosine of the illumination angle. Pixels with a
+  // larger illumination angle (including self-shadow) are corrected as if
+  // illuminated at this limit, which prevents overcorrection when the
+  // direct irradiance approaches 0
+  ill_min = cos(pl2->topo_ill_limit*M_PI/180.0);
   
   
   if (pl2->dobrdf) cite_me(_CITE_BRDF_);
 
 
-  #pragma omp parallel private(j, p, z, toa, weights, T, Ts, tss, tsd, tvs, tvd, s, rho_p, tss_sw2, tsd_sw2, tg, sky, ill, cf, szen, ms, Tso, Tvo, E0_, f, f0, h0, bck, tmp, ref) firstprivate(A, brdf) shared(b, b_sw2, nx, ny, nf, ne, gres, fres, vnodata, nodata, toa_, boa_, bck_, QAI, dem_, ill_, sky_, cf_, Tg_, atc, pl2, xyz_T, xyz_Ts, xyz_tss, xyz_tsd, xyz_tvs, xyz_tvd, xyz_s, xyz_rho_p, xyz_tss_sw2, xyz_tsd_sw2, xy_brdf, xy_vz, xy_sz, xy_Tg, xy_Tvo, xy_Tso) default(none) 
+  #pragma omp parallel private(j, p, z, toa, weights, T, Ts, tss, tsd, tvs, tvd, s, rho_p, tss_sw2, tsd_sw2, tg, sky, ill, cf, szen, ms, Tso, Tvo, E0_, f, f0, h0, bck, tmp, ref) firstprivate(A, brdf) shared(b, b_sw2, nx, ny, nf, ne, gres, fres, vnodata, nodata, toa_, boa_, bck_, QAI, dem_, ill_, ill_min, sky_, cf_, Tg_, atc, pl2, xyz_T, xyz_Ts, xyz_tss, xyz_tsd, xyz_tvs, xyz_tvd, xyz_s, xyz_rho_p, xyz_tss_sw2, xyz_tsd_sw2, xy_brdf, xy_vz, xy_sz, xy_Tg, xy_Tvo, xy_Tso) default(none) 
   {
 
     #pragma omp for schedule(guided)
@@ -303,12 +310,15 @@ float **xyz_tsd_sw2 = NULL;
           ill = ill_[p]/10000.0;
           cf  = cf_[p]/10000.0;
 
-          // self-shadowed pixels (cos i <= 0) are treated as poorly 
-          // illuminated pixels: direct irradiance is 0, diffuse only
-          if (ill < 0) ill = 0.0;
-
           szen = interpolate_coarse(weights, xy_sz); 
           ms   = cos(szen);
+
+          // poorly illuminated and self-shadowed pixels are corrected as 
+          // if illuminated at the illumination angle limit. The limit is not
+          // allowed to exceed the solar zenith, such that these pixels are 
+          // never darkened (A < 1)
+          if (ill < ill_min && ill < ms) ill = (ill_min < ms) ? ill_min : ms;
+
           Tso  = interpolate_coarse(weights, xy_Tso); 
           Tvo  = interpolate_coarse(weights, xy_Tvo); 
           E0_ = atc->E0[b] * Tvo*Tso;

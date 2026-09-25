@@ -164,6 +164,15 @@ DO_ATMO = TRUE
 # a DEM need to be given.
 # Type: Logical. Valid values: {TRUE,FALSE}
 DO_TOPO = TRUE
+# This parameter limits the topographic correction of poorly illuminated
+# and self-shadowed pixels. Pixels with an illumination angle (angle between
+# sun and surface normal) larger than this limit are corrected as if they
+# were illuminated at this angle. This prevents overcorrection, as the
+# correction factor increases steeply when the direct irradiance approaches
+# zero. Lower values give a weaker correction of poorly illuminated slopes.
+# 90 applies the full correction (diffuse irradiance only in self-shadow).
+# Type: Float. Valid range: [0,90]
+TOPO_ILLUMINATION_LIMIT = 80
 # This indicates if BRDF correction should be performed. If TRUE, output is
 # nadir BRDF adjusted reflectance instead of BOA reflectance (the output is
 # named BOA nonetheless).
